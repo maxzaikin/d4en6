@@ -1,20 +1,91 @@
-// d4en6.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// d4en6.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+#include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
 #include <iostream>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <iomanip>
+#include <filesystem>
+#include <future>
+#include <chrono> 
+#include <atomic> 
+#include <sstream>
+#include <wincrypt.h>
 
-int main()
-{
-    std::cout << "Hello World!\n";
+
+struct ProcessInfo {
+    DWORD pid;
+    std::wstring name;
+    std::string path;
+    SIZE_T memoryUsage;
+};
+
+
+std::vector<ProcessInfo> getProcessList() {
+    std::vector<ProcessInfo> processes;
+
+    // Создаем снимок всех процессов
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error creating snapshot: " << GetLastError() << std::endl;
+        return processes;
+    }
+
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    if (!Process32First(hSnapshot, &pe32)) {
+        std::cerr << "Error getting first process: " << GetLastError() << std::endl;
+        CloseHandle(hSnapshot);
+        return processes;
+    }
+
+    do {
+        ProcessInfo info;
+        info.pid = pe32.th32ProcessID;
+        info.name = pe32.szExeFile;
+
+        
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
+        if (hProcess != NULL) {
+            
+            char filePath[MAX_PATH];
+            if (GetModuleFileNameExA(hProcess, NULL, filePath, MAX_PATH) != 0) {
+                info.path = filePath;
+            }
+            
+            PROCESS_MEMORY_COUNTERS_EX pmc;
+            if (GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+                info.memoryUsage = pmc.PrivateUsage;
+            }
+
+            CloseHandle(hProcess);
+        }
+
+        processes.push_back(info);
+    } while (Process32Next(hSnapshot, &pe32));
+
+    CloseHandle(hSnapshot);
+
+    return processes;
 }
 
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
+int main() {
+    
+    std::vector<ProcessInfo> processes = getProcessList();
 
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
+    
+    for (const auto& process : processes) {
+        
+        std::wcout << L"PID: " << process.pid << L", Name: " << process.name << L", ";
+        std::cout << "Path: " << process.path;
+        std::wcout << L", Memory Usage: " << process.memoryUsage << L" bytes" << std::endl;
+
+    }
+
+    return 0;
+}
